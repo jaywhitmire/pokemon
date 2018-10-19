@@ -1,0 +1,360 @@
+---
+title: "Pokemon Shiny"
+author: "Jay Whitmire"
+date: "10/15/2018"
+output: html_document
+runtime: shiny
+---
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(dplyr)
+library(plyr)
+library(tidyverse)
+library(tidyr)
+library(cluster)
+library(shiny)
+pokemon <- read_csv(url('https://raw.githubusercontent.com/jaywhitmire/pokemon/master/pokemon_full.csv'))
+
+pokemon_for_clustering <- pokemon %>% 
+  select(Name, HP:Speed) %>% 
+  mutate(HP = scale(HP),
+         Attack = scale(Attack),
+         Defense = scale(Defense),
+         Sp..Atk = scale(Sp..Atk),
+         Sp..Def = scale(Sp..Def),
+         Speed = scale(Speed)
+  )
+
+set.seed(1)
+model7 <- kmeans(x = pokemon_for_clustering[-1], centers = 7, nstart = 50)
+pokemon$cluster7m <- model7$cluster
+
+
+pokemon$cluster7m <- mapvalues(pokemon$cluster7m, from = c(4, 3, 7, 2, 6, 1, 5), 
+                               to = c('Physically Strong', 'Pure Defenders',
+                                      'Elite HP', 'Weaklings', 'Speedsters',
+                                      'Specialists', 'Elite Attackers'))
+
+#########   Gathering for plots
+
+pokemon_gather_cluster <- pokemon %>% 
+  gather('Stat', 'Value', HP:Speed)
+
+pokemon <- pokemon %>% 
+  mutate(HP_scaled = scale(HP),
+         Attack_scaled = scale(Attack),
+         Defense_scaled = scale(Defense),
+         Sp..Atk_scaled = scale(Sp..Atk),
+         Sp..Def_scaled = scale(Sp..Def),
+         Speed_scaled = scale(Speed)
+  )
+
+
+pokemon_gather_scaled <- gather(pokemon, key = "Stat", value = "Value", HP_scaled:Speed_scaled )
+
+alphabetical <- function(x,y){x < y}
+
+  
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Pokemon Search
+
+```{r echo = FALSE}
+
+inputPanel(
+  selectInput('type', label='Type', choices = c("Any", "Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water", "Only"), selected = 'Psychic'),
+  selectInput('typ', label='Type', choices = c("Any", "Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water", "Only"), selected = 'Fighting'),
+  sliderInput("attack", label = "Attack", min = 5, max = 190, value = c(100, 190), step = 5),
+  sliderInput("defense", label = "Defense", min = 5, max = 230, value = c(100, 230), step = 5),
+  sliderInput("hp", label = "HP", min = 0, max = 255, value = c(100, 255), step = 5),
+  sliderInput("sa", label = "Special Attack", min = 10, max = 194, value = c(100, 194), step = 5),
+  sliderInput("sd", label = "Special Defense", min = 20, max = 230, value = c(100, 230), step = 5),
+  sliderInput("speed", label = "Speed", min = 5, max = 180, value = c(100, 180), step = 5),
+  sliderInput("evo", label = "Evolution", min = 0, max = 4, value = c(0, 4), step = 1),
+  sliderInput("star", label = "Starter", min = 0, max = 1, value = c(0, 1), step = 1)
+)
+
+renderTable({
+  data2 <- reactive({
+    if (input$type == 'Any' & input$typ == 'Any') {
+    pokemon %>% 
+      filter(Evolution >= input$evo[1] & Evolution <= input$evo[2],
+             Starter >= input$star[1] & Starter <= input$star[2],
+             Attack >= input$attack[1] & Attack <= input$attack[2],
+             Defense >= input$defense[1] & Defense <= input$defense[2],
+             HP >= input$hp[1] & HP <= input$hp[2],
+             Sp..Atk >= input$sa[1] & Sp..Atk <= input$sa[2],
+             Sp..Def >= input$sd[1] & Sp..Def <= input$sd[2],
+             Speed >= input$speed[1] & Speed <= input$speed[2]) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame() 
+    }
+    else if (input$type == 'Any' & input$typ != 'Any') {
+      pokemon %>% 
+      filter(Type.1 == input$typ | Type.2 == input$typ,
+             Evolution >= input$evo[1] & Evolution <= input$evo[2],
+             Starter >= input$star[1] & Starter <= input$star[2],
+             Attack >= input$attack[1] & Attack <= input$attack[2],
+             Defense >= input$defense[1] & Defense <= input$defense[2],
+             HP >= input$hp[1] & HP <= input$hp[2],
+             Sp..Atk >= input$sa[1] & Sp..Atk <= input$sa[2],
+             Sp..Def >= input$sd[1] & Sp..Def <= input$sd[2],
+             Speed >= input$speed[1] & Speed <= input$speed[2]) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+    else if (input$typ == 'Any' & input$type != 'Any') {
+      pokemon %>% 
+      filter(Type.1 == input$type | Type.2 == input$type,
+             Evolution >= input$evo[1] & Evolution <= input$evo[2],
+             Starter >= input$star[1] & Starter <= input$star[2],
+             Attack >= input$attack[1] & Attack <= input$attack[2],
+             Defense >= input$defense[1] & Defense <= input$defense[2],
+             HP >= input$hp[1] & HP <= input$hp[2],
+             Sp..Atk >= input$sa[1] & Sp..Atk <= input$sa[2],
+             Sp..Def >= input$sd[1] & Sp..Def <= input$sd[2],
+             Speed >= input$speed[1] & Speed <= input$speed[2]) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+    else {
+    
+    pokemon %>% 
+      filter(Type.1 == input$type | Type.2 == input$type,
+             Type.1 == input$typ | Type.2 == input$typ,
+             Evolution >= input$evo[1] & Evolution <= input$evo[2],
+             Starter >= input$star[1] & Starter <= input$star[2],
+             Attack >= input$attack[1] & Attack <= input$attack[2],
+             Defense >= input$defense[1] & Defense <= input$defense[2],
+             HP >= input$hp[1] & HP <= input$hp[2],
+             Sp..Atk >= input$sa[1] & Sp..Atk <= input$sa[2],
+             Sp..Def >= input$sd[1] & Sp..Def <= input$sd[2],
+             Speed >= input$speed[1] & Speed <= input$speed[2]) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+  })
+  
+  data2()
+})
+
+
+
+
+```
+
+## Pokemon by their Types
+
+```{r echo=FALSE}
+
+inputPanel(
+  selectInput("a", label = "Type", choices = c("Any", "Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water"), selected = "Ground"),
+  selectInput("b", label = "Type", choices = c("Any", "Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water", "Only"), selected = "Rock")
+)
+
+renderPlot({
+  data <- reactive({
+   if (input$a == 'Any' & input$b == 'Any') {
+    pokemon_gather_cluster %>% 
+      as.data.frame() 
+    }
+    else if (input$a == 'Any' & input$b != 'Any') {
+      pokemon_gather_cluster %>% 
+      filter(Type.1 == input$b | Type.2 == input$b) %>% 
+      as.data.frame()
+    }
+    else if (input$b == 'Any' & input$a != 'Any') {
+      pokemon_gather_cluster %>% 
+      filter(Type.1 == input$a | Type.2 == input$a) %>% 
+      as.data.frame()
+    }
+    else {
+    
+    pokemon_gather_cluster %>% 
+      filter(Type.1 == input$a | Type.2 == input$a,
+             Type.1 == input$b | Type.2 == input$b) %>% 
+      as.data.frame()
+    }
+  })
+  
+  ggplot(data(), aes(x=Stat, y=Value, col = Stat)) +
+    geom_boxplot()
+  
+})
+
+renderTable({
+  data1 <- reactive({
+  if (input$a == 'Any' & input$b == 'Any') {
+    pokemon %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame() 
+    }
+    else if (input$a == 'Any' & input$b != 'Any') {
+      pokemon %>% 
+      filter(Type.1 == input$b | Type.2 == input$b) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+    else if (input$b == 'Any' & input$a != 'Any') {
+      pokemon %>% 
+      filter(Type.1 == input$a | Type.2 == input$a) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+    else {
+    
+    pokemon %>% 
+      filter(Type.1 == input$a | Type.2 == input$a,
+             Type.1 == input$b | Type.2 == input$b) %>% 
+      select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A) %>% 
+      arrange(Rank) %>% 
+      as.data.frame()
+    }
+  })
+  
+  data1()
+  
+})
+
+
+```
+
+
+## Type Comparison of Stats
+
+```{r echo=FALSE}
+
+inputPanel(
+  selectInput("x", label = "Type", choices = c("Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water"), selected = "Fire"),
+  selectInput("y", label = "Type", choices = c("Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water"), selected = "Grass"),
+  selectInput("z", label = "Type", choices = c("Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost", "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water"), selected = "Water")
+)
+
+renderPlot({
+  data <- reactive({
+    pokemon_gather_cluster %>% 
+  filter(grepl(input$x, Types) | grepl(input$y, Types) | grepl(input$z, Types), Types != paste(input$x, input$y, sep = "_"), Types != paste(input$x, input$z, sep = "_"), Types != paste(input$y, input$z, sep = "_")) %>% 
+  mutate(Type = ifelse(grepl(input$x, Types), input$x, ifelse(grepl(input$y, Types), input$y, input$z))) %>% 
+      as.data.frame()
+  })
+  
+  ggplot(data(), aes(x=Stat, y=Value, col=Type)) +
+  geom_boxplot()
+  
+})
+
+
+```
+
+## Compare Two Pokemon
+
+```{r echo = FALSE, error=FALSE, message=FALSE, warning=FALSE}
+inputPanel(
+  textInput('name1', label = 'Pokemon Name', value = "Mew"),
+  textInput('name2', label = 'Pokemon Name', value = "Mewtwo")
+)
+
+renderTable({
+  
+data3 <- reactive({pokemon %>% 
+  filter(Name %in%  c(input$name1, input$name2)) %>% 
+  select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A)
+})
+  
+data3()
+
+})
+
+renderPlot({
+
+data3 <- reactive({pokemon_gather_cluster %>% 
+  filter(Name %in%  c(input$name1, input$name2))
+})
+
+  
+ggplot(data3(), aes(x=Stat, y=Value, group=factor(cluster7m), fill = Stat,  col = Stat)) +
+  geom_bar(stat='summary', fun.y=mean, alpha = 0.5) +
+  coord_polar() +
+  facet_wrap(~Name, ncol = 2)
+
+
+})
+
+
+```
+
+
+## Stat Comparisons
+
+```{r echo = FALSE, error=FALSE, message=FALSE, warning=FALSE}
+
+pokemon1 <- pokemon %>% 
+  mutate(Generation = as.factor(Generation),
+         Evolution = as.factor(Evolution),
+         Final.OG = as.factor(Final.OG),
+         Final.LG = as.factor(Final.LG),
+         Starter = as.factor(Starter),
+         Mega = as.factor(Mega),
+         Form = as.factor(Form)
+  )
+
+pokemon1$Evolution <- mapvalues(pokemon1$cluster7m, from = c(0, 1, 2, 3, 4), 
+                               to = c('Baby', 'First', 'Second', 'Third', 'Mega'))
+
+pokemon1$Form <- mapvalues(pokemon1$Form, from = c(0, 1), 
+                               to = c('No Forms', 'Different Forms'))
+
+pokemon1$Mega <- mapvalues(pokemon1$Mega, from = c(0, 1, 2, 3), 
+                               to = c('Normal Pokemon', '1st Evolution Mega Pokemon', '2nd Evolution Mega Pokemon', '3rd Evolution Mega Pokemon'))
+
+pokemon1$Legendary <- mapvalues(pokemon1$Legendary, from = c(FALSE, TRUE), 
+                               to = c('Normal Pokemon', 'Legendary Pokemon'))
+
+pokemon1$Starter <- mapvalues(pokemon1$Starter, from = c(0, 1), 
+                               to = c('Normal Pokemon', 'Starter Pokemon'))
+
+pokemon1$Final.OG <- mapvalues(pokemon1$Final.OG, from = c(0, 1), 
+                               to = c('Not Final Evolution', 'Final Evolution in its First Generation'))
+
+pokemon1$Final.LG <- mapvalues(pokemon1$Final.LG, from = c(0, 1), 
+                               to = c('Not a New Evolution', 'New Evolution of Old Pokemon'))
+
+
+
+inputPanel(
+  selectInput("Xaxis", label = "X Axis", choices = c("Attack", "Defense","Hit Points" = "HP", "Special Attack" = "Sp..Atk", "Special Defense" = "Sp..Def", "Speed", "Total","Strategic Total" = "Total.A", "Rank", "Number"), selected = "Defense"),
+  
+  selectInput("Yaxis", label = "Y Axis", choices = c("Attack", "Defense","Hit Points" = "HP", "Special Attack" = "Sp..Atk", "Special Defense" = "Sp..Def", "Speed", "Total","Strategic Total" = "Total.A", "Rank", "Number"), selected = "Attack"),
+  
+  selectInput("Color", label = "Color", choices = c("Cluster" = "cluster7m", "Generation", "Evolution", "Starter", "Legendary", "Mega Evolution" = "Mega",  "Next Gen. Evoultion" = "Final.LG", "Original Final Evolution" = "Final.OG", "Form"), selected = "cluster7m")
+)
+
+renderPlot({
+
+
+plot2 <-  reactive({ggplot(data = pokemon1, aes_string(x = input$Xaxis, y = input$Yaxis), aes(alpha = 0.2)) +
+    geom_point(data = pokemon1, aes_string(col = input$Color)) +
+  geom_smooth(method = 'lm', se = FALSE) +
+    labs(col = '')
+  })
+
+plot2()
+})
+
+```
+
+
+
+
