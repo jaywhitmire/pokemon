@@ -1,0 +1,319 @@
+---
+title: "Pokemon Clusters No Code"
+author: "Jay Whitmire"
+date: "10/17/2018"
+output: html_document
+runtime: shiny
+---
+
+# Clustering Pokemon
+
+### Goal
+The goal of this report is to use unsupervised machine learning techniques to learn about the hidden structures and groupings of pokemon based on their stats in the Nintendo Gameboy Video Games.  
+
+### Introduction
+
+Pokemon are already grouped by their types (grass, water, fire, etc.), evolutions (with expericence pokemon get stronger and metamorphasize into new forms), generations (when the pokemon was introduced, as the games went on, new pokemon were created).  But pokemon also have base stats (Hit Points, Attack, Defense, Special Attack, Special Defense, and Speed) that greatly effect the strategy and outcomes of pokemon battles.  Through `kmeans` cluster analysis I will demonstrate that pokemon have hidden types that allow them to be classified based on their stats alone.  These 7 types I have labeled as **Elite Attackers**, **Elite HP**, **Pure Defenders**, **Specialists**, **Speedsters**, and **Weaklings**.
+
+### Data Set
+
+The original data set came from [kaggle](https://www.kaggle.com/abcsds/pokemon) but was incomplete because it did not include the newest generation of pokemon.  While incomplete, this data set is great because it contains multiple forms of certain pokemon and their stats inluding Mega pokemon.  In order to include the most recent generation of pokemon, I found [another pokemon data set](https://www.kaggle.com/rounakbanik/pokemon) with the stats I needed but not the forms that made the first data set so great.   The most recent generation had only a few pokemon with multiple forms that I input manually.  I also manually generated the Total.A through cluster columns.  The final data set can be found on my [`github` page](https://github.com/jaywhitmire/pokemon/blob/master/pokemon_full.csv).  
+
+
+```{r opts_chunk$set(out.width='750px', dpi=200), echo=FALSE, warning=FALSE, message=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(dplyr)
+library(plyr)
+library(tidyverse)
+library(tidyr)
+library(cluster)
+library(shiny)
+library(DT)
+
+pokemon <- read_csv(url('https://raw.githubusercontent.com/jaywhitmire/pokemon/master/pokemon_full.csv'))
+```
+
+
+### Picking the Number of Clusters
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+####   CLUSTERING!!!!
+
+pokemon_for_clustering <- pokemon %>% 
+  select(Name, HP:Speed) %>% 
+  mutate(HP = scale(HP),
+         Attack = scale(Attack),
+         Defense = scale(Defense),
+         Sp..Atk = scale(Sp..Atk),
+         Sp..Def = scale(Sp..Def),
+         Speed = scale(Speed)
+  )
+
+
+## Seeing how many Ks
+
+tot_withinss <- map_dbl(1:10,  function(k){
+  model <- kmeans(x = pokemon_for_clustering[-1], centers = k)
+  model$tot.withinss
+})
+
+# Generate a data frame containing both k and tot_withinss
+elbow_df <- data.frame(
+  k = 1:10,
+  tot_withinss = tot_withinss
+)
+
+# Plot the elbow plot
+ggplot(elbow_df, aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:10)
+
+
+# Use map_dbl to run many models with varying value of k
+sil_width <- map_dbl(2:10,  function(k){
+  model <- pam(pokemon_for_clustering[-1], k = k)
+  model$silinfo$avg.width
+})
+
+# Generate a data frame containing both k and sil_width
+sil_df <- data.frame(
+  k = 2:10,
+  sil_width = sil_width
+)
+
+# Plot the relationship between k and sil_width
+ggplot(sil_df, aes(x = k, y = sil_width)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 2:10)
+
+```
+
+Choosing the number of clusters to use is more of an art than a science but there are two plots to help make this decision as displayed above.  The Elbow plot suggests we use 2 clusters but that will not be enough for our purposes of creating meaning full distinctions between pokemon strengths.  The sil_width plot suggests it would be best to use a k of 2 followed by 3, then 7, then 8.  After examining cthe actual clusters my self and exploring them through visulizations I have decided that using a k of 7 creates meaninful clusters for actionable insights.  We will use 7 `kmeans` clusters going forward.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+set.seed(1)
+model7 <- kmeans(x = pokemon_for_clustering[-1], centers = 7, nstart = 50)
+pokemon$cluster7m <- model7$cluster
+
+
+pokemon$cluster7m <- mapvalues(pokemon$cluster7m, from = c(4, 3, 7, 2, 6, 1, 5), 
+                               to = c('Physically Strong', 'Pure Defenders',
+                                      'Elite HP', 'Weaklings', 'Speedsters',
+                                      'Specialists', 'Elite Attackers'))
+
+#########   Gathering for plots
+
+pokemon_gather_cluster <- pokemon %>% 
+  gather('Stat', 'Value', HP:Speed)
+
+pokemon <- pokemon %>% 
+  mutate(HP_scaled = scale(HP),
+         Attack_scaled = scale(Attack),
+         Defense_scaled = scale(Defense),
+         Sp..Atk_scaled = scale(Sp..Atk),
+         Sp..Def_scaled = scale(Sp..Def),
+         Speed_scaled = scale(Speed)
+  )
+
+
+pokemon_gather_scaled <- gather(pokemon, key = "Stat", value = "Value", HP_scaled:Speed_scaled )
+
+
+```
+
+## What Pokemon are in Each Cluster?
+
+```{r fig.height= 12, fig.width= 9, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Load the ggplot2 package which provides
+# the 'mpg' dataset.
+library(shiny)
+library(ggplot2)
+
+ui <- fluidPage(
+  titlePanel("Pokemon by Cluster"),
+
+  # Create a new Row in the UI for selectInputs
+  fluidRow(
+    column(4,
+        selectInput("man",
+                    "Cluster:",
+                    c("All",
+                      unique(as.character(pokemon$cluster7m))))
+    ),
+    column(4,
+        selectInput("trans",
+                    "Primary Type:",
+                    c("All",
+                      unique(as.character(pokemon$Type.1))))
+    ),
+    column(4,
+        selectInput("cyl",
+                    "Secondary Type:",
+                    c("All",
+                      unique(as.character(pokemon$Type.2))))
+    )
+  ),
+  # Create a new row for the table.
+  DT::dataTableOutput("table")
+)
+
+
+# Load the ggplot2 package which provides
+# the 'mpg' dataset.
+library(ggplot2)
+
+
+server <- function(input, output) {
+
+  # Filter data based on selections
+  output$table <- DT::renderDataTable(DT::datatable({
+    data <- pokemon %>% select(Number, Name, Type.1, Type.2, cluster7m, Rank, Attack, Defense, HP, Sp..Atk:Speed, Total, Total.A)
+    if (input$man != "All") {
+      data <- data[data$cluster7m == input$man,]
+    }
+    if (input$cyl != "All") {
+      data <- data[data$Type.1 == input$cyl,]
+    }
+    if (input$trans != "All") {
+      data <- data[data$Type.2 == input$trans,]
+    }
+    data
+  }))
+
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+
+## Cluster Plots
+
+
+```{r fig.width= 9, fig.height= 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+#7m Regular Stats
+pokemon_gather_cluster %>% 
+  ggplot(aes(x=factor(cluster7m), y=Value, col = Stat)) +
+  geom_boxplot() +
+  labs(title = 'Boxplot of Cluster Stats', x = 'Cluster') 
+  
+
+
+pokemon_gather_cluster %>% 
+  ggplot(aes(x=Stat, y=Value, col = factor(cluster7m))) +
+  geom_boxplot() +
+  labs(title = 'Boxplot of Stats by Cluster', col = 'Cluster') 
+
+#7m scaled
+pokemon_gather_scaled %>% 
+  ggplot(aes(x=factor(cluster7m), y=Value, col = Stat)) +
+  geom_boxplot()+
+  labs(title = 'Boxplot of Cluster Normalized Stats', x = 'Cluster', y = 'Standard Deviations from Mean') 
+
+pokemon_gather_scaled %>% 
+  ggplot(aes(x=Stat, y=Value, col = factor(cluster7m))) +
+  geom_boxplot() +
+  labs(title = 'Boxplot of Normalized Stats', col = 'Cluster', y = 'Standard Deviations from Mean') 
+
+
+#Mean   Clusters
+pokemon_gather_cluster %>% 
+  ggplot( aes(x=Stat, y=Value, group=factor(cluster7m), fill = factor(cluster7m),  col = factor(cluster7m))) +
+  geom_bar(stat='summary', fun.y=mean, alpha = 0.5) +
+  coord_polar() +
+  facet_wrap(~factor(cluster7m), ncol = 4) +
+  labs(title = 'Average Stats for Each Cluster by Cluster', fill = 'Cluster', x = '', y = 'Average Value')  +
+  guides(col = FALSE)
+
+#Mean Stats
+pokemon_gather_cluster %>% 
+  ggplot( aes(x=factor(cluster7m), y=Value, group=Stat, fill = factor(cluster7m),  col = factor(cluster7m))) +
+  geom_bar(stat='summary', fun.y=mean, alpha = 0.5) +
+  coord_polar() +
+  facet_wrap(~factor(Stat), ncol = 3) +
+  labs(title = 'Average Stats for Each Cluster by Stat', fill = 'Cluster', x = '', y = 'Average Value')  +
+  guides(col = FALSE)
+
+
+#Mean   Clusters Scaled
+pokemon_gather_scaled %>% 
+  ggplot( aes(x=Stat, y=Value, group=factor(cluster7m), fill = factor(cluster7m),  col = factor(cluster7m))) +
+  geom_bar(stat='summary', fun.y=mean, alpha = 0.5) +
+  coord_polar() +
+  facet_wrap(~factor(cluster7m), ncol = 4) +
+  labs(title = 'Average Normalized Stats for Each Cluster', x = '', y = "Average Standard Deviations from the Mean Stat", caption = "*If a stat is below average, it will appear inverted in the cluster circle", fill = 'Cluster' ) +
+  guides(col = FALSE)
+
+#Mean Stats Scaled
+pokemon_gather_scaled %>% 
+  ggplot( aes(x=factor(cluster7m), y=Value, group=Stat, fill = factor(cluster7m),  col = factor(cluster7m))) +
+  geom_bar(stat='summary', fun.y=mean, alpha = 0.5) +
+  coord_polar() +
+  facet_wrap(~factor(Stat), ncol = 3) +
+  labs(title = 'Average Normalized Stats for Each Cluster by Stat', x = '', y = "Average Standard Deviations from the Mean Stat", caption = "*If a stat is below average, it will appear inverted in the cluster circle", fill = 'Cluster' ) +
+  guides(col = FALSE)
+
+#Density Plots of Total.A Stats
+pokemon %>% 
+  ggplot(aes(x=Total.A, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(x = 'Strategic Total', y = 'Density', fill = 'Cluster', title = 'Density Plots of Strategic Total by Cluster')
+
+# Density Plot for All Stats
+pokemon_gather_cluster %>% 
+  ggplot(aes(x=Value, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ Stat)+
+  labs(x = 'Stat Value', y = 'Density', fill = 'Cluster', title = 'Comparing Density of Stat Values by Cluster')
+
+#Attack
+pokemon %>% 
+  ggplot(aes(x=Attack, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3) +
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Attack")
+
+#Defense
+pokemon %>% 
+  ggplot(aes(x=Defense, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Defense")
+
+#HP
+pokemon %>% 
+  ggplot(aes(x=HP, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Hit Points")
+
+#Sp..Atk
+pokemon %>% 
+  ggplot(aes(x=Sp..Atk, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Special Attack")
+
+#Sp..Def
+pokemon %>% 
+  ggplot(aes(x=Sp..Def, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Special Defense")
+
+#Speed
+pokemon %>% 
+  ggplot(aes(x=Speed, fill=factor(cluster7m))) +
+  geom_density(alpha = 0.3)+
+  facet_grid(factor(cluster7m) ~ .) +
+  labs(y = 'Density', fill = 'Cluster', title = "Zoomed in on Speed")
+
+
+```
+
+
